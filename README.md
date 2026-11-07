@@ -19,12 +19,12 @@
 
 [Architecture](docs/ARCHITECTURE.md) • [Design Document](docs/DESIGN.md) • [API Reference](docs/API.md) • [Ablation & Failures](docs/ABLATION_AND_FAILURES.md) • [Datasets](docs/DATASETS.md) • [Reproduce](docs/REPRODUCE.md) • [Deployment](docs/DEPLOYMENT.md)
 
-**Team Asphalt (T32) · Problem P2: Intelligent and Computationally Efficient Smartphone ISP**
+**[Live Demo](https://lumaforge-one.vercel.app)** • **Team Asphalt (T32) · Problem P2: Intelligent and Computationally Efficient Smartphone ISP**
 
 </div>
 
 > [!IMPORTANT]
-> **Project status: evaluated.** Models, results and documentation are complete. The live URL is not available yet. See [Project Status](#-project-status).
+> **Project status: live at [lumaforge-one.vercel.app](https://lumaforge-one.vercel.app).** Models, results and documentation are complete. See [Project Status](#-project-status).
 
 ---
 
@@ -92,7 +92,7 @@ Three arms are compared on identical inputs:
 | ONNX export, int8 and fp16 models | ✅ [`models/`](models/) |
 | Comparative evaluation | ✅ [`eval_P2_T32.md`](eval_P2_T32.md) |
 | Ablation study and failure-case analysis | ✅ [`docs/ABLATION_AND_FAILURES.md`](docs/ABLATION_AND_FAILURES.md) |
-| Live hosted application | ⏳ Not deployed yet |
+| Live hosted application | ✅ [lumaforge-one.vercel.app](https://lumaforge-one.vercel.app), without MongoDB so far |
 
 ## 📊 Results
 

@@ -1,6 +1,6 @@
 # Deployment
 
-The application is designed for Vercel, with MongoDB Atlas as optional storage. It has not been deployed yet.
+The application is designed for Vercel, with MongoDB Atlas as optional storage. It is live at [lumaforge-one.vercel.app](https://lumaforge-one.vercel.app), currently without MongoDB.
 
 ## Before Deploying
 
@@ -33,6 +33,8 @@ vercel deploy --prod
 ```
 
 `vercel.json` routes `/api/*` to the Python function and bundles the models and samples.
+
+Vercel installs from `pyproject.toml` when one exists, so this repository must not have one: lint and test settings live in `ruff.toml` and `pytest.ini`, and dependencies live in `requirements.txt`. `.python-version` pins Python 3.12, because Vercel no longer offers 3.11. Tests have run on 3.11, and the live API has been checked on 3.12.
 
 ## Verify
 

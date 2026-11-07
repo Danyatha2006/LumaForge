@@ -19,8 +19,10 @@ logs/
 # Local configuration
 .env
 .env.local
-.env*.local
+.local
 .vercel/
 
 # Local tool state
 .claude/
+
+.vercel
