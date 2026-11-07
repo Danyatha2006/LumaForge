@@ -1,8 +1,9 @@
 """Export trained checkpoints to ONNX, then apply reduced precision and quantization.
 
-    teacher  -> lumanet_quality.onnx (fp32) and lumanet_quality_fp16.onnx
-    student  -> lumanet_fast.onnx    (fp32) and lumanet_fast_int8.onnx
-    learned  -> lumanet_learned.onnx (fp32) and lumanet_learned_int8.onnx
+    abl_no_classical_denoise -> lumanet_compact.onnx (fp32), lumanet_compact_int8.onnx (deployed)
+    learned                  -> lumanet_learned.onnx (fp32), lumanet_learned_int8.onnx (deployed)
+    teacher                  -> lumanet_quality.onnx (fp32), lumanet_quality_fp16.onnx
+    student                  -> lumanet_fast.onnx    (fp32), lumanet_fast_int8.onnx
 
 Static int8 quantization is calibrated on validation crops. The output head and everything
 after it stay in floating point, because the output is added to an 8-bit-accurate base image
@@ -51,13 +52,13 @@ class Reader(CalibrationDataReader):
         return {k: v.numpy()[None] for k, v in values.items() if k in self.names}
 
 
-def quantize(source: Path, target: Path, data: Path) -> None:
+def quantize(source: Path, target: Path, data: Path, isp: ISPConfig | None = None) -> None:
     prepared = source.with_suffix(".pre.onnx")
     quant_pre_process(str(source), str(prepared), skip_symbolic_shape=True)
     graph = onnx.load(str(prepared)).graph
     names = {i.name for i in graph.input}
     excluded = _nodes_after_head(graph)
-    dataset = CropDataset(data, "val", 128, augment=False, degrade=True, isp=ISPConfig())
+    dataset = CropDataset(data, "val", 128, augment=False, degrade=True, isp=isp or ISPConfig())
     quantize_static(
         str(prepared), str(target), Reader(dataset, names), quant_format=QuantFormat.QDQ,
         activation_type=QuantType.QUInt8, weight_type=QuantType.QInt8, per_channel=True,
@@ -90,6 +91,11 @@ def main() -> None:
     fast, _ = load_model(args.checkpoints / "student.pt")
     export(fast, args.out / "lumanet_fast.onnx")
     quantize(args.out / "lumanet_fast.onnx", args.out / "lumanet_fast_int8.onnx", args.data)
+
+    compact, _ = load_model(args.checkpoints / "abl_no_classical_denoise.pt")
+    export(compact, args.out / "lumanet_compact.onnx")
+    quantize(args.out / "lumanet_compact.onnx", args.out / "lumanet_compact_int8.onnx", args.data,
+             ISPConfig(denoise=False))
 
     learned, _ = load_model(args.checkpoints / "learned.pt")
     export(learned, args.out / "lumanet_learned.onnx")

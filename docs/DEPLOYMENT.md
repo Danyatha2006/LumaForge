@@ -1,13 +1,12 @@
 # Deployment
 
-The application is designed for Vercel, with MongoDB Atlas as optional storage. It has not been deployed yet, because it needs trained models.
+The application is designed for Vercel, with MongoDB Atlas as optional storage. It has not been deployed yet.
 
 ## Before Deploying
 
 Confirm that these files exist and are committed:
 
-- `models/lumanet_fast_int8.onnx`
-- `models/lumanet_quality_fp16.onnx`
+- `models/lumanet_compact_int8.onnx`
 - `models/lumanet_learned_int8.onnx`
 - `samples/` and `public/samples/`
 - `results/summary.json`

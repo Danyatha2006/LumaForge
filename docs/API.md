@@ -45,7 +45,7 @@ Response fields:
 |---|---|
 | `images` | JPEG data URLs for `traditional`, `learned`, `hybrid` and `reference` |
 | `metrics` | PSNR and CIE76 ΔE per arm. `null` for uploads, which have no reference |
-| `route`, `model` | The model that was used |
+| `route`, `model` | The model that was used. `fast` is the compact hybrid. On `quality`, the hybrid image is the learned model's output |
 | `stats` | Measured noise and brightness |
 | `controls` | Adaptive settings and the routing reason |
 | `gains` | Applied white-balance gains |

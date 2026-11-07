@@ -63,14 +63,15 @@ class TorchArm:
 
 
 class OnnxArm:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, isp: ISPConfig | None = None) -> None:
+        self.isp = isp or ISPConfig()
         options = ort.SessionOptions()
         options.intra_op_num_threads = 4
         self.session = ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
         self.names = {i.name for i in self.session.get_inputs()}
 
     def __call__(self, bayer: np.ndarray, camera: str, compensation: float) -> np.ndarray:
-        inputs = prepare(bayer, camera, ISPConfig(), compensation)
+        inputs = prepare(bayer, camera, self.isp, compensation)
         feed = {"packed": inputs.packed[None], "noise": inputs.noise[None], "base": inputs.base[None]}
         feed = {k: v for k, v in feed.items() if k in self.names}
         return np.clip(self.session.run(["rgb"], feed)[0][0].transpose(1, 2, 0), 0, 1)
@@ -148,15 +149,19 @@ def main() -> None:
     teacher = TorchArm(args.checkpoints / "teacher.pt")
     student = TorchArm(args.checkpoints / "student.pt")
     learned = TorchArm(args.checkpoints / "learned.pt")
+    compact = TorchArm(args.checkpoints / "abl_no_classical_denoise.pt")
 
     if args.task == "main":
-        adaptive = AdaptiveArm(OnnxArm(args.models / "lumanet_fast_int8.onnx"),
-                               OnnxArm(args.models / "lumanet_quality_fp16.onnx"))
+        compact_int8 = OnnxArm(args.models / "lumanet_compact_int8.onnx", ISPConfig(denoise=False))
+        learned_int8 = OnnxArm(args.models / "lumanet_learned_int8.onnx")
+        adaptive = AdaptiveArm(compact_int8, learned_int8)
         arms = {
             "traditional_fixed": fixed,
             "traditional": traditional,
             "learned_fp32": learned,
-            "learned_int8": OnnxArm(args.models / "lumanet_learned_int8.onnx"),
+            "learned_int8": learned_int8,
+            "hybrid_compact_fp32": compact,
+            "hybrid_compact_int8": compact_int8,
             "hybrid_quality_fp32": teacher,
             "hybrid_quality_fp16": OnnxArm(args.models / "lumanet_quality_fp16.onnx"),
             "hybrid_fast_fp32": student,
@@ -171,7 +176,7 @@ def main() -> None:
         table = {}
         for name, condition in CONDITIONS.items():
             arms = {"traditional": traditional, "learned": learned,
-                    "hybrid_adaptive": AdaptiveArm(student, teacher)}
+                    "hybrid_adaptive": AdaptiveArm(compact, learned)}
             table[name] = score(arms, data, subset, lpips, condition)
             table[name]["condition"] = condition
             table[name]["routed"] = arms["hybrid_adaptive"].routed
@@ -180,7 +185,7 @@ def main() -> None:
 
         # Failure mode: the capture is 2 stops under, but the gain metadata is missing.
         blind = {"exposure": 0.25}
-        arms = {"traditional": traditional, "hybrid_adaptive": AdaptiveArm(student, teacher)}
+        arms = {"traditional": traditional, "hybrid_adaptive": AdaptiveArm(compact, learned)}
         blind_arms = {name: (lambda f: lambda b, cam, _: f(b, cam, 1.0))(arm) for name, arm in arms.items()}
         table["blind_underexposed_2stop"] = score(blind_arms, data, subset, lpips, blind)
         table["blind_underexposed_2stop"]["condition"] = {"exposure": 0.25, "metadata": "missing"}

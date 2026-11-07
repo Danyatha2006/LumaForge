@@ -1,6 +1,6 @@
 # Design Document
 
-> **Status: draft.** This records the design and the evidence behind it so far. Results will be added once the models are trained and evaluated on the held-out test set.
+> **Status: complete.** This records the design, the evidence behind it, and where the evidence overturned the original plan. Section 2.7 and Section 6 describe the deployed system.
 
 ## 1. Goal
 
@@ -10,9 +10,9 @@ Convert degraded smartphone RAW into high-quality sRGB, while improving colour a
 
 ### 2.1 Residual refinement instead of end-to-end rendering
 
-**Decision:** The network refines a classical render.
+**Decision:** The compact network refines an undenoised classical render.
 
-**Why:** The classical stages already encode sensor physics and cost no parameters. Refinement should need a smaller network, and colour stays anchored to a real render. The learned arm is kept to test this assumption directly.
+**Why:** The classical stages encode sensor physics and cost no parameters, and colour stays anchored to a real render. The original design refined a fully denoised render. The ablation study showed that this removes texture the network cannot restore, so the classical denoiser was removed from the compact model's base. See Section 2.7.
 
 ### 2.2 One NumPy implementation of the classical stages
 
@@ -46,11 +46,19 @@ Convert degraded smartphone RAW into high-quality sRGB, while improving colour a
 
 **Caveat:** The prior comes from the dataset's illuminants, so it may not transfer to other cameras or lighting.
 
-### 2.7 Two routed models
+### 2.7 Two routed models, chosen from evidence
 
-**Decision:** A small int8 student handles typical captures, and a larger fp16 teacher handles noisy ones.
+**Decision:** A compact hybrid (width 12, int8) handles low-noise captures. The learned model (width 24, int8) handles captures above a post-gain noise gate of `0.0284`.
 
-**Why:** Most captures should not need the larger model. The gate is provisional, at `0.02` post-gain noise, and will be set on validation data.
+**Why:** The first deployed pair, a distilled student and teacher on a denoised base, barely beat the classical baseline on the test set. Checkpoints were then ranked on validation scenes across PSNR, SSIM, CIEDE2000 and LPIPS (`scripts/select_model.py`). The learned model ranked first, and the hybrid without classical denoising ranked second, 0.12 dB behind at about 40% of the file size.
+
+**Deviation from the ranking rule:** The rule named one winner. The compact hybrid was kept as the default route anyway, because the brief asks for an efficient hybrid. The ranking winner serves the quality route.
+
+**Gate:** `scripts/tune_gate.py` picks the gate on validation scenes: the largest fast-route share with mean PSNR within 0.05 dB of always using the quality model. This gave `0.0284` and a 70% fast share.
+
+**Caveat:** This pair was chosen after the first test run had been seen. The ranking used validation data only, but the published test numbers are not a fully blind test of the choice.
+
+**Consequence:** The deployed system does not use distillation or fp16. Both remain implemented and measured in `eval_P2_T32.md`.
 
 ### 2.8 Quantization boundaries
 
@@ -78,12 +86,12 @@ Known effects:
 
 | Run | Width | Iterations | Notes |
 |---|---:|---:|---|
-| Teacher | 24 | 5,000 | Hybrid, quality route |
-| Learned | 24 | 5,000 | Comparison arm |
-| Student | 12 | 4,000 | Distilled from the teacher |
-| Ablation variants | 12 | 2,000 | One change each |
+| Teacher | 24 | 5,000 | Hybrid on a denoised base, not deployed |
+| Learned | 24 | 5,000 | Deployed on the quality route |
+| Student | 12 | 4,000 | Distilled from the teacher, not deployed |
+| Ablation variants | 12 | 2,000 | One change each. `abl_no_classical_denoise` is deployed as the compact hybrid |
 
-These budgets reflect CPU-only training on a laptop. They are planned values.
+These budgets reflect CPU-only training on a laptop. The whole sequence took about 7.5 hours.
 
 ## 5. Risks
 
@@ -96,4 +104,19 @@ These budgets reflect CPU-only training on a laptop. They are planned values.
 
 ## 6. Results
 
-Pending.
+Measured on 928 held-out blocks from 29 scenes:
+
+| Pipeline | PSNR (dB) | SSIM | ΔE2000 | LPIPS | Model size |
+|---|---:|---:|---:|---:|---:|
+| Traditional baseline | 30.90 | 0.8557 | 5.53 | 0.3287 | none |
+| Learned, int8 | 30.97 | 0.8838 | 5.82 | 0.2230 | 0.73 MB |
+| Compact hybrid, int8 | 31.01 | 0.8823 | 5.47 | 0.2124 | 0.29 MB |
+| **Hybrid adaptive (deployed)** | **30.92** | **0.8832** | **5.61** | **0.2170** | **0.29 + 0.73 MB** |
+
+Against the baseline, the deployed system changes SSIM by +0.0276 (95% CI +0.0167 to +0.0395) and LPIPS by -0.1117 (95% CI -0.1436 to -0.0832). PSNR changes by +0.02 dB (95% CI -0.58 to +0.62) and ΔE2000 by +0.08 (95% CI -0.32 to +0.43), so neither differs reliably from the baseline.
+
+The system clearly improves structure and perceived quality. It does not improve mean fidelity or colour accuracy on clean captures. Its largest fidelity gains are under stress, such as +1.05 dB at 3 stops under.
+
+On test, the compact model alone slightly beat the routed system, so routing did not earn its cost on clean captures. See [ABLATION_AND_FAILURES.md](ABLATION_AND_FAILURES.md).
+
+Full tables are in [`eval_P2_T32.md`](../eval_P2_T32.md).

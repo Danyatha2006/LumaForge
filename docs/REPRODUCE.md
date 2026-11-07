@@ -41,6 +41,8 @@ python scripts/make_samples.py
 ## 5. Evaluation
 
 ```bash
+python scripts/select_model.py
+python scripts/tune_gate.py
 python scripts/evaluate.py main
 python scripts/evaluate.py robust
 python scripts/evaluate.py ablation

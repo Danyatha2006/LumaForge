@@ -94,7 +94,7 @@ def main() -> None:
 
     rows = json.loads((args.results / "main.json").read_text())["rows"]
     data = TestSet(args.data)
-    hybrid = AdaptiveArm(TorchArm(Path("checkpoints/student.pt")), TorchArm(Path("checkpoints/teacher.pt")))
+    hybrid = AdaptiveArm(TorchArm(Path("checkpoints/abl_no_classical_denoise.pt")), TorchArm(Path("checkpoints/learned.pt")))
     arms = {"Traditional": classical_arm(ISPConfig()), "Learned": TorchArm(Path("checkpoints/learned.pt")),
             "Hybrid": hybrid}
 

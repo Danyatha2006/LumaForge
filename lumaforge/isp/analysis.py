@@ -1,4 +1,4 @@
-"""Blind scene analysis that drives the adaptive pipeline.
+﻿"""Blind scene analysis that drives the adaptive pipeline.
 
 Nothing here needs capture metadata: noise and illumination are measured from the mosaic,
 so the same code path works for a SIDD test block, an uploaded RAW, or a synthetic capture.
@@ -99,7 +99,7 @@ class AdaptiveControls:
 def plan(
     stats: SceneStats,
     compensation: float = 1.0,
-    noise_gate: float = 0.02,
+    noise_gate: float = 0.0284,  # set on validation by scripts/tune_gate.py
     max_sharpen: float = 0.25,
 ) -> AdaptiveControls:
     """Turn measurements into per-stage settings.

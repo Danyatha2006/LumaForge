@@ -16,6 +16,8 @@ Notable changes to this project are recorded here. The format follows [Keep a Ch
 - Next.js interface with Lab, Results and Architecture pages
 - Tests and GitHub Actions CI
 - Project documentation and community files
+- Trained models, evaluation results, `eval_P2_T32.md`, and the ablation and failure analysis
+- Validation model ranking and noise-gate tuning scripts
 
 ### Changed
 

@@ -14,30 +14,35 @@ from .isp.pipeline import ISPConfig
 
 MODEL_DIR = Path(os.environ.get("LUMAFORGE_MODELS", Path(__file__).resolve().parents[1] / "models"))
 MODEL_FILES = {
-    "fast": "lumanet_fast_int8.onnx",
-    "quality": "lumanet_quality_fp16.onnx",
+    "fast": "lumanet_compact_int8.onnx",
+    "quality": "lumanet_learned_int8.onnx",
     "learned": "lumanet_learned_int8.onnx",
 }
+# The compact hybrid was trained on an undenoised base; it replaces the classical denoiser.
+COMPACT_ISP = ISPConfig(denoise=False)
 _sessions: dict[str, ort.InferenceSession] = {}
 
 
 def session(name: str) -> ort.InferenceSession:
     """Lazily create one session per model; warm serverless instances reuse them."""
-    if name not in _sessions:
+    file = MODEL_FILES[name]
+    if file not in _sessions:
         options = ort.SessionOptions()
         options.intra_op_num_threads = int(os.environ.get("LUMAFORGE_THREADS", "2"))
         options.inter_op_num_threads = 1
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        _sessions[name] = ort.InferenceSession(
-            str(MODEL_DIR / MODEL_FILES[name]), options, providers=["CPUExecutionProvider"]
+        _sessions[file] = ort.InferenceSession(
+            str(MODEL_DIR / file), options, providers=["CPUExecutionProvider"]
         )
-    return _sessions[name]
+    return _sessions[file]
 
 
 def infer(name: str, packed: np.ndarray, noise: np.ndarray, base: np.ndarray) -> np.ndarray:
-    output = session(name).run(
-        ["rgb"], {"packed": packed[None], "noise": noise[None], "base": base[None]}
-    )[0]
+    # The learned arm has no classical base image, so feed only what each graph declares.
+    model = session(name)
+    wanted = {i.name for i in model.get_inputs()}
+    feed = {"packed": packed[None], "noise": noise[None], "base": base[None]}
+    output = model.run(["rgb"], {k: v for k, v in feed.items() if k in wanted})[0]
     return np.clip(output[0].transpose(1, 2, 0), 0.0, 1.0).astype(np.float32)
 
 
@@ -73,7 +78,8 @@ def render(
 
     route = result.controls.route if mode == "auto" else mode
     started = time.perf_counter()
-    hybrid = infer(route, inputs.packed, inputs.noise, inputs.base)
+    guided = prepare(bayer, camera, COMPACT_ISP, compensation) if route == "fast" else inputs
+    hybrid = infer(route, guided.packed, guided.noise, guided.base)
     timings["hybrid_net"] = (time.perf_counter() - started) * 1000
 
     learned = None

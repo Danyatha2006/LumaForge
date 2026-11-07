@@ -17,14 +17,14 @@
 
 *A hybrid image signal processor that turns noisy smartphone Bayer RAW into faithful sRGB. Classical camera stages supply a physically meaningful render, and a compact neural network corrects only what those stages get wrong.*
 
-[Architecture](docs/ARCHITECTURE.md) • [Design Document](docs/DESIGN.md) • [API Reference](docs/API.md) • [Datasets](docs/DATASETS.md) • [Reproduce](docs/REPRODUCE.md) • [Deployment](docs/DEPLOYMENT.md)
+[Architecture](docs/ARCHITECTURE.md) • [Design Document](docs/DESIGN.md) • [API Reference](docs/API.md) • [Ablation & Failures](docs/ABLATION_AND_FAILURES.md) • [Datasets](docs/DATASETS.md) • [Reproduce](docs/REPRODUCE.md) • [Deployment](docs/DEPLOYMENT.md)
 
 **Team Asphalt (T32) · Problem P2: Intelligent and Computationally Efficient Smartphone ISP**
 
 </div>
 
 > [!IMPORTANT]
-> **Project status: in progress.** The source code, calibration and documentation are in this repository. Model training has not finished, so there are no trained models, evaluation results, `eval_P2_T32.md` or live URL yet. See [Project Status](#-project-status). No quality score is claimed until it has been measured on the held-out test set.
+> **Project status: evaluated.** Models, results and documentation are complete. The live URL is not available yet. See [Project Status](#-project-status).
 
 ---
 
@@ -67,7 +67,7 @@
 | **Physics first** | A classical pipeline renders the image, so colour and tone start from a physically meaningful result |
 | **Learn the residual** | The network predicts a global colour correction and a local residual, rather than the whole image |
 | **Measure, then adapt** | Noise is fitted from the mosaic itself, and that measurement sets each stage's strength |
-| **Spend compute only when needed** | Easy captures use a small int8 model, and hard captures use a larger fp16 model |
+| **Spend compute only when needed** | Low-noise captures use a compact hybrid, and noisy captures use a larger learned model. Both are int8 |
 | **One implementation everywhere** | The same NumPy ISP runs in training, evaluation and the deployed function, which rules out train/serve skew |
 
 Three arms are compared on identical inputs:
@@ -84,15 +84,36 @@ Three arms are compared on identical inputs:
 
 | Deliverable | Status |
 |---|---|
-| Classical ISP, LumaNet, API and web application source | ✅ In this repository, not yet run end to end |
+| Classical ISP, LumaNet, API and web application source | ✅ API tested locally on both routes, web build passes |
 | System architecture diagram | ✅ [`public/figures/architecture.svg`](public/figures/architecture.svg) |
-| Design document | 🟡 [`docs/DESIGN.md`](docs/DESIGN.md) records decisions so far; results to be added |
+| Design document | ✅ [`docs/DESIGN.md`](docs/DESIGN.md) |
 | Data cache and camera calibration | ✅ 115 scenes processed, calibration committed |
-| Trained models | ⏳ Pending |
-| ONNX export, int8 and fp16 models | ⏳ Pending, needs trained models |
-| Comparative evaluation, `eval_P2_T32.md` | ⏳ Pending, needs trained models |
-| Ablation study and failure-case analysis | ⏳ Pending, needs trained models |
-| Live hosted application | ⏳ Pending, needs trained models |
+| Trained models | ✅ 10 runs, 2 deployed |
+| ONNX export, int8 and fp16 models | ✅ [`models/`](models/) |
+| Comparative evaluation | ✅ [`eval_P2_T32.md`](eval_P2_T32.md) |
+| Ablation study and failure-case analysis | ✅ [`docs/ABLATION_AND_FAILURES.md`](docs/ABLATION_AND_FAILURES.md) |
+| Live hosted application | ⏳ Not deployed yet |
+
+## 📊 Results
+
+Measured on 928 held-out blocks from 29 scenes:
+
+| Pipeline | PSNR (dB) | SSIM | ΔE2000 | LPIPS | Model size |
+|---|---:|---:|---:|---:|---:|
+| Traditional baseline | 30.90 | 0.8557 | 5.53 | 0.3287 | none |
+| Learned, int8 | 30.97 | 0.8838 | 5.82 | 0.2230 | 0.73 MB |
+| Compact hybrid, int8 | 31.01 | 0.8823 | 5.47 | 0.2124 | 0.29 MB |
+| **Hybrid adaptive (deployed)** | **30.92** | **0.8832** | **5.61** | **0.2170** | **0.29 + 0.73 MB** |
+
+- **Clear gains over the baseline:** SSIM +0.0276 and LPIPS -0.1117, with 95% intervals that exclude zero.
+- **No reliable change:** PSNR +0.02 dB (95% CI -0.58 to +0.62) and ΔE2000 +0.08 (95% CI -0.32 to +0.43).
+- **Gains under stress:** +1.05 dB at 3 stops under, and +0.90 to +1.75 dB under colour casts.
+- **Speed:** the compact int8 model takes 82 ms at 512 px on one laptop CPU thread, with 58 MB peak memory. The classical stages add about 320 ms.
+- **Selection caveat:** the deployed pair was chosen after a first test run had been seen, using validation data only, so these numbers are not a fully blind estimate.
+
+![Traditional, learned and hybrid comparison](public/figures/comparison.png)
+
+![Robustness under degradation](public/figures/robustness.png)
 
 ---
 
@@ -124,8 +145,8 @@ Three arms are compared on identical inputs:
 │                 │                     │
 │        ┌────────┴────────┐            │
 │        ▼                 ▼            │
-│   LumaNet fast     LumaNet quality    │
-│   student, int8    teacher, fp16      │
+│   Compact hybrid   Learned            │
+│   width 12, int8   width 24, int8     │
 │        └────────┬────────┘            │
 │                 ▼                     │
 │  Global colour matrix + local residual│
@@ -184,12 +205,14 @@ $r$ is the classical render, $\Delta M$ and $t$ come from a global colour head, 
 
 | Model | Width | Parameters | Role |
 |---|---:|---:|---|
-| LumaNet fast | 12 | 152,276 | Distilled student, default route |
-| LumaNet quality | 24 | 587,216 | Teacher, used for hard captures |
+| Compact hybrid | 12 | 152,276 | Fast route, refines an undenoised classical render |
+| Learned | 24 | 581,124 | Quality route, has no classical render input |
 
-The learned arm uses the same backbone at width 24, without the classical input or the colour head.
+The learned model still receives classical white-balance gains, exposure and the noise map. It does not receive the classical render.
 
-**Inputs:** packed RAW after gain and square-root encoding, a per-pixel noise map, and the classical render.
+The teacher, distilled student and fp16 export were built and measured, but are not deployed. The [design document](docs/DESIGN.md#27-two-routed-models-chosen-from-evidence) explains why.
+
+**Inputs:** packed RAW after gain and square-root encoding, a per-pixel noise map, and, for the hybrid, the classical render.
 
 **Training loss:** Charbonnier, SSIM, and an L1 term in CIELAB for colour fidelity. The student adds an L1 distillation term against the teacher.
 
@@ -207,13 +230,13 @@ flowchart TD
     D --> E[Denoise strength]
     D --> F[Sharpening amount]
     D --> G{Above the noise gate?}
-    G -->|No| H[LumaNet fast, int8]
-    G -->|Yes| I[LumaNet quality, fp16]
+    G -->|No| H[Compact hybrid, int8]
+    G -->|Yes| I[Learned, int8]
 ```
 
 Digital gain comes from capture metadata and is not estimated. SIDD references keep dark scenes dark, so a blind auto-exposure would wrongly brighten scenes that are meant to be dim. The case where this metadata is missing will be reported as a failure mode.
 
-The current noise gate of `0.02` is provisional, and is near the 90th percentile of noise in the sampled training crops. It will be finalised on validation data.
+The noise gate of `0.0284` was tuned on validation scenes by [`scripts/tune_gate.py`](scripts/tune_gate.py). It gives the largest fast-route share, 70%, while mean PSNR stays within 0.05 dB of always using the larger model.
 
 ---
 
@@ -221,12 +244,12 @@ The current noise gate of `0.02` is provisional, and is near the 90th percentile
 
 | Technique | Applied to | Purpose |
 |---|---|---|
-| **Knowledge distillation** | Fast model | Train a 152k-parameter student from the 587k-parameter teacher |
-| **Int8 static quantization** | Fast and learned models | Reduce size and CPU cost. The output head stays in float to avoid banding |
-| **Reduced precision (fp16)** | Quality model | Halve the stored weight size |
+| **Int8 static quantization** | Both deployed models | Reduce size and CPU cost. The output head stays in float to avoid banding |
+| **Knowledge distillation** | Student, measured but not deployed | Train a 152k-parameter student from the 587k-parameter teacher |
+| **Reduced precision (fp16)** | Teacher, measured but not deployed | Halve the stored weight size |
 | **Depthwise-separable blocks** | All models | Reduce operations per layer |
 
-Size, MACs, latency and peak memory will be measured by [`scripts/benchmark.py`](scripts/benchmark.py), with each measurement in a fresh process.
+Size, MACs, latency and peak memory are measured by [`scripts/benchmark.py`](scripts/benchmark.py), with each measurement in a fresh process.
 
 ---
 
@@ -402,14 +425,14 @@ LumaForge/
 | Requirement | Implementation | State |
 |---|---|---|
 | **A. Classical computer vision** | [`lumaforge/isp/`](lumaforge/isp/) | ✅ Implemented |
-| **B. Deep learning** | [`lumaforge/models/lumanet.py`](lumaforge/models/lumanet.py), [`scripts/train.py`](scripts/train.py) | 🟡 Implemented, training pending |
-| **C. Hybrid architecture** | [`lumaforge/hybrid.py`](lumaforge/hybrid.py), [`lumaforge/runtime.py`](lumaforge/runtime.py) | 🟡 Implemented, comparison pending |
-| Adaptive pipeline | [`lumaforge/isp/analysis.py`](lumaforge/isp/analysis.py) | 🟡 Implemented, gate to be finalised |
-| RAW-to-RGB reconstruction | Whole pipeline | 🟡 Implemented, training pending |
-| Optimization | [`scripts/export_onnx.py`](scripts/export_onnx.py) | 🟡 Script written |
-| Size, memory and latency | [`scripts/benchmark.py`](scripts/benchmark.py) | 🟡 Script written |
-| Degradation and recovery | [`scripts/evaluate.py`](scripts/evaluate.py) | 🟡 Script written |
-| Comparison with conventional baseline | [`scripts/evaluate.py`](scripts/evaluate.py) | 🟡 Script written |
+| **B. Deep learning** | [`lumaforge/models/lumanet.py`](lumaforge/models/lumanet.py), [`scripts/train.py`](scripts/train.py) | ✅ Trained |
+| **C. Hybrid architecture** | [`lumaforge/hybrid.py`](lumaforge/hybrid.py), [`lumaforge/runtime.py`](lumaforge/runtime.py) | ✅ Evaluated |
+| Adaptive pipeline | [`lumaforge/isp/analysis.py`](lumaforge/isp/analysis.py) | ✅ Gate tuned on validation |
+| RAW-to-RGB reconstruction | Whole pipeline | ✅ Evaluated |
+| Optimization | [`scripts/export_onnx.py`](scripts/export_onnx.py) | ✅ Measured |
+| Size, memory and latency | [`scripts/benchmark.py`](scripts/benchmark.py) | ✅ Measured |
+| Degradation and recovery | [`scripts/evaluate.py`](scripts/evaluate.py) | ✅ Measured |
+| Comparison with conventional baseline | [`scripts/evaluate.py`](scripts/evaluate.py) | ✅ Measured |
 
 ---
 

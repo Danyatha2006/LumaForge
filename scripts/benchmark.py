@@ -24,6 +24,8 @@ MODELS = {
     "hybrid_quality_fp16": ("lumanet_quality_fp16.onnx", "teacher"),
     "hybrid_fast_fp32": ("lumanet_fast.onnx", "student"),
     "hybrid_fast_int8": ("lumanet_fast_int8.onnx", "student"),
+    "hybrid_compact_fp32": ("lumanet_compact.onnx", "abl_no_classical_denoise"),
+    "hybrid_compact_int8": ("lumanet_compact_int8.onnx", "abl_no_classical_denoise"),
     "learned_fp32": ("lumanet_learned.onnx", "learned"),
     "learned_int8": ("lumanet_learned_int8.onnx", "learned"),
 }
